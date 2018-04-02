@@ -1,0 +1,18 @@
+[package]
+name = "opendht"
+version = "0.0.1"
+authors = ["Manuel Schölling <manuel.schoelling@gmx.de>"]
+build = "build.rs"
+
+[[example]]
+name = "dht"
+
+[build-dependencies]
+cc = "*"
+
+[dependencies]
+libc = "*"
+futures-await = { git = "https://github.com/ngg/futures-await", branch = "0.1", version = "0.1" }
+nix = "*"
+tokio = "*"
+tokio-timer = "0.1.2"
