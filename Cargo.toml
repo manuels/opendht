@@ -1,8 +1,9 @@
 [package]
 name = "opendht"
-version = "0.0.1"
+version = "0.0.2"
 authors = ["Manuel Schölling <manuel.schoelling@gmx.de>"]
 build = "build.rs"
+edition = "2018"
 
 [[example]]
 name = "dht"
@@ -12,7 +13,9 @@ cc = "*"
 
 [dependencies]
 libc = "*"
-futures-await = { git = "https://github.com/ngg/futures-await", branch = "0.1", version = "0.1" }
 nix = "*"
-tokio = "*"
-tokio-timer = "0.1.2"
+ring = "*"
+futures = "*"
+
+[dev-dependencies]
+tokio = {version = "0.1", features = ["async-await-preview"]}

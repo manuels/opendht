@@ -5,7 +5,7 @@ use libc;
 use futures::sync::oneshot;
 use futures::sync::mpsc;
 
-pub type dht_t = *const libc::c_void;
+pub type dht_t = *mut libc::c_void;
 pub type c_bool = libc::c_uchar;
 
 #[link(name = "opendht")]
@@ -13,8 +13,9 @@ extern {
     pub fn dht_init() -> dht_t;
     pub fn dht_drop(dht: dht_t);
     pub fn dht_join(dht: dht_t);
+    pub fn dht_is_running(dht: dht_t) -> libc::c_int;
     pub fn dht_run(dht: dht_t, port: u16);
-    pub fn dht_loop(dht: dht_t) -> libc::time_t;
+    pub fn dht_loop_ms(dht: dht_t) -> libc::time_t;
 
     pub fn dht_bootstrap(dht: dht_t, sa: *const libc::sockaddr,
       sa_count: libc::size_t, done_cb: extern fn(c_bool, *mut oneshot::Sender<bool>),

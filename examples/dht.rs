@@ -1,43 +1,49 @@
-#![feature(proc_macro, pin, generators)]
+#![feature(await_macro, async_await, futures_api)]
 
 extern crate opendht;
-extern crate tokio;
-extern crate tokio_timer;
-extern crate futures_await as futures;
+extern crate futures;
+#[macro_use] extern crate tokio;
 
 use std::net::ToSocketAddrs;
-use futures::prelude::*;
+use tokio::prelude::*;
 
 use opendht::OpenDht;
 
-#[async]
-fn run() -> Result<(),()> {
-    let dht = OpenDht::new(4222);
-
-    let f = OpenDht::maintain(dht.clone());
-    tokio::spawn(f);
-    
+async fn run(dht: OpenDht) {
     println!("Bootstrapping...");
     let addrs: Vec<_> = "bootstrap.ring.cx:4222".to_socket_addrs().unwrap().collect();
     let f = dht.bootstrap(&addrs);
     await!(f).unwrap();
 
+    let key = &b"foo"[..];
+
     println!("Storing...");
-    let f = dht.put(&[6;20], &[9,9,9]);
+    let f = dht.put(key, &[9,9,9]);
     await!(f).unwrap();
 
-    let f = dht.get(&[6;20]);
-    #[async]
-    for item in f {
+    let mut f = dht.get(key);
+
+    while let Some(item) = await!(f.next()) {
         println!("Found {:?}", item);
     }
 
     dht.join();
     println!("Done: All threads joined.");
-
-    Ok(())
 }
 
 fn main() {
-    tokio::run(run());
+    tokio::run_async(async {
+        let dht = OpenDht::new(4222);
+
+        let dht2 = dht.clone();
+        tokio::spawn_async(async move {
+            while let Some(next) = dht2.tick() {
+                let f = tokio::timer::Delay::new(next);
+                let _ = await!(f);
+            }
+        });
+
+        await!(run(dht));
+    });
 }
+

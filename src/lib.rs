@@ -1,28 +1,55 @@
-#![feature(proc_macro, pin, generators)]
+#![feature(await_macro, async_await, futures_api)]
 
 extern crate libc;
 extern crate nix;
-extern crate futures_await as futures;
-extern crate tokio;
-extern crate tokio_timer;
+extern crate ring;
+extern crate futures;
 
 mod sys;
 
 use std::net::SocketAddr;
+use std::time::Instant;
 use std::time::Duration;
-use std::time::SystemTime;
-use std::time::UNIX_EPOCH;
 use std::sync::Arc;
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicPtr, Ordering};
 
+use futures::sync::mpsc;
+use futures::sync::oneshot;
 use nix::sys::socket::InetAddr;
 use nix::sys::socket::SockAddr;
-use futures::prelude::*;
-use futures::sync::oneshot;
-use futures::sync::mpsc;
+
+use ring::digest;
+
+pub struct InfoHash(digest::Digest);
+
+impl InfoHash {
+    pub fn new<T:AsRef<[u8]>>(key: T) -> InfoHash {
+        let hash = digest::digest(&digest::SHA1, key.as_ref());
+        InfoHash(hash)
+    }
+
+    pub fn as_ptr(&self) -> *const u8 {
+        self.0.as_ref().as_ptr()
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.as_ref().len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.as_ref().is_empty()
+    }
+}
+
+impl<'a, T: Into<&'a [u8]>> From<T> for InfoHash {
+    fn from(data: T) -> InfoHash {
+        InfoHash::new(data.into())
+    }
+}
 
 #[derive(Clone)]
-pub struct OpenDht(Arc<Mutex<sys::dht_t>>);
+pub struct OpenDht(Arc<AtomicPtr<libc::c_void>>);
+
 unsafe impl Send for OpenDht {}
 unsafe impl Sync for OpenDht {}
 
@@ -47,26 +74,20 @@ extern fn get_callback(values: *mut *mut libc::c_uchar,
 
         if tx.try_send(item.to_vec()).is_err() {
             std::mem::forget(tx);
-            std::mem::forget(item);
-            std::mem::forget(ptr_list);
-            std::mem::forget(len_list);
             return 0;
         }
-
-        std::mem::forget(item);
     }
 
     std::mem::forget(tx);
-    std::mem::forget(ptr_list);
-    std::mem::forget(len_list);
-    return 1;
+
+    1
 }
 
 fn convert_socketaddr(s: &SocketAddr) -> libc::sockaddr {
     let s = InetAddr::from_std(s);
     let s = SockAddr::new_inet(s);
     unsafe {
-        std::mem::transmute(*s.as_ffi_pair().0)
+        *s.as_ffi_pair().0
     }
 }
 
@@ -80,7 +101,7 @@ impl OpenDht {
         let ptr = unsafe { sys::dht_init() };
         unsafe { sys::dht_run(ptr, port) };
 
-        OpenDht(Arc::new(Mutex::new(ptr)))
+        OpenDht(Arc::new(AtomicPtr::new(ptr)))
     }
 
     /// Connect this DHT client to other nodes.
@@ -101,25 +122,30 @@ impl OpenDht {
         socks = sockets.iter().map(convert_socketaddr).collect();
 
         let ptr = socks.as_ptr();
-        let this = self.0.lock().unwrap();
+        let this = self.0.load(Ordering::Relaxed);
 
         unsafe {
-            sys::dht_bootstrap(*this, ptr, socks.len(), done_callback, tx);
+            sys::dht_bootstrap(this, ptr, socks.len(), done_callback, tx);
         }
 
         rx
     }
 
-    fn tick(ptr: sys::dht_t) -> Duration {
-        let next = unsafe { sys::dht_loop(ptr) };
-        let next = UNIX_EPOCH + Duration::from_secs(next as _);
-        next.duration_since(SystemTime::now()).unwrap_or(Duration::from_millis(200))
+    fn loop_(&self) -> Duration {
+        let ptr = self.0.load(Ordering::Relaxed);
+        let next = unsafe { sys::dht_loop_ms(ptr) };
+        Duration::from_millis(next as _)
+    }
+
+    fn is_running(&self) -> bool {
+        let ptr = self.0.load(Ordering::Relaxed);
+        unsafe { sys::dht_is_running(ptr) != 0 }
     }
 
     /// Wait for DHT threads to end. Run this before your program ends.
     pub fn join(&self) {
-        let this = self.0.lock().unwrap();
-        unsafe { sys::dht_join(*this) };
+        let this = self.0.load(Ordering::Relaxed);
+        unsafe { sys::dht_join(this) };
     }
 
     /// Put a value on the DHT.
@@ -128,20 +154,21 @@ impl OpenDht {
     ///
     /// * `key` - Key that is used to find the value by the other DHT clients.
     /// * `value` - Value to store on the DHT.
-    pub fn put(&self, key: &[u8], value: &[u8])
+    pub fn put<K: Into<InfoHash>>(&self, key: K, value: &[u8])
         -> oneshot::Receiver<bool>
     {
         let (tx, rx) = oneshot::channel();
         let tx = Box::new(tx);
         let tx = Box::into_raw(tx);
 
+        let key: InfoHash = key.into();
         let key_ptr = key.as_ptr();
         let ptr = value.as_ptr();
 
-        let this = self.0.lock().unwrap();
+        let this = self.0.load(Ordering::Relaxed);
 
         unsafe {
-            sys::dht_put(*this, key_ptr, key.len(), ptr, value.len(),
+            sys::dht_put(this, key_ptr, key.len(), ptr, value.len(),
                 done_callback, tx);
         }
 
@@ -155,7 +182,7 @@ impl OpenDht {
     /// # Arguments
     ///
     /// * `key` - Key to lookup.
-    pub fn get(&self, key: &[u8]) -> mpsc::Receiver<Vec<u8>>
+    pub fn get<K: Into<InfoHash>>(&self, key: K) -> mpsc::Receiver<Vec<u8>>
     {
         extern fn get_done_callback(_success: sys::c_bool, tx: *mut mpsc::Sender<Vec<u8>>)
         {
@@ -167,11 +194,12 @@ impl OpenDht {
         let get_tx = Box::new(get_tx);
         let get_tx = Box::into_raw(get_tx);
 
+        let key = key.into();
         let key_ptr = key.as_ptr();
-        let this = self.0.lock().unwrap();
+        let this = self.0.load(Ordering::Relaxed);
 
         unsafe {
-            sys::dht_get(*this, key_ptr, key.len(), get_callback, get_tx,
+            sys::dht_get(this, key_ptr, key.len(), get_callback, get_tx,
                 get_done_callback, get_tx);
         }
 
@@ -193,31 +221,25 @@ impl OpenDht {
         let get_tx = Box::into_raw(get_tx);
 
         let key_ptr = key.as_ptr();
-        let this = self.0.lock().unwrap();
+        let this = self.0.load(Ordering::Relaxed);
 
         unsafe {
-            sys::dht_listen(*this, key_ptr, key.len(), get_callback, get_tx);
+            sys::dht_listen(this, key_ptr, key.len(), get_callback, get_tx);
         }
 
         get_rx
     }
 
-    /// Runs maintainance tasks. Returns a [Future](futures::future::Future)
-    /// that never returns, so you probably should `clone` this `OpenDht` instance
-    /// and [tokio::spawn](tokio::executor::spawn) it.
-    #[async]
-    pub fn maintain(dht: Self) -> Result<(),()> {
-        // TODO: quit on drop
-        loop {
-            let next = {
-                let ptr = dht.0.lock().unwrap();
-                let next = OpenDht::tick(*ptr);
-                drop(ptr);
-                next
-            };
-
-            let f = tokio_timer::Timer::default().sleep(next);
-            await!(f.map_err(|_| ()))?;
+    /// Runs maintainance tasks.. Returns when this function should be called
+    /// again, so you probably should `clone` this `OpenDht` instance
+    /// and call it in a [tokio::spawn](tokio::executor::spawn)ed loop.
+    /// Returns None if this loop can stop.
+    pub fn tick(&self) -> Option<Instant> {
+        if self.is_running() {
+            let next = self.loop_();
+            Some(Instant::now() + next)
+        } else {
+            None
         }
     }
 
@@ -234,10 +256,10 @@ impl OpenDht {
 
         let buf = Box::new(Vec::new());
         let ptr = Box::into_raw(buf);
-        let this = self.0.lock().unwrap();
+        let this = self.0.load(Ordering::Relaxed);
 
         let vec = unsafe {
-            sys::serialize(*this, cb, ptr);
+            sys::serialize(this, cb, ptr);
             Box::from_raw(ptr)
         };
 
@@ -248,19 +270,21 @@ impl OpenDht {
     /// (See `serialize()`)
     pub fn deserialize(&self, buf: &[u8]) {
         let ptr = buf.as_ptr();
-        let this = self.0.lock().unwrap();
+        let this = self.0.load(Ordering::Relaxed);
 
         unsafe {
-            sys::deserialize(*this, ptr, buf.len());
+            sys::deserialize(this, ptr, buf.len());
         }
     } 
 }
 
 impl Drop for OpenDht {
     fn drop(&mut self) {
-        unsafe {
-            let this = self.0.lock().unwrap();
-            sys::dht_drop(*this)
+        if let Some(this) = Arc::get_mut(&mut self.0) {
+            unsafe {
+                let ptr = this.load(Ordering::Relaxed);
+                sys::dht_drop(ptr);
+            }
         }
     }
 }

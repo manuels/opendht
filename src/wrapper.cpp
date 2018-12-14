@@ -28,12 +28,25 @@ extern "C" void dht_drop(dht_t *dht) {
   delete DHT(dht);
 }
 
+extern "C" int dht_is_running(dht_t *dht) {
+  return DHT(dht)->isRunning();
+}
+
 extern "C" void dht_join(dht_t *dht) {
   DHT(dht)->join();
 }
 
-extern "C" time_t dht_loop(dht_t *dht) {
-  return to_time_t(DHT(dht)->loop());
+extern "C" uint64_t dht_loop_ms(dht_t *dht) {
+//  return to_time_t(DHT(dht)->loop());
+  auto now = steady_clock::now();
+  auto next = DHT(dht)->loop();
+  
+  if (now > next) {
+    return 0;
+  } else {
+    auto dt = next - now;
+    return std::chrono::duration_cast<std::chrono::milliseconds>(dt).count();
+  }
 }
 
 extern "C" void dht_bootstrap(dht_t *dht, sockaddr sa[], size_t sa_count, done_callback done_cb, void *done_ptr) {
@@ -55,7 +68,7 @@ extern "C" void dht_put(dht_t *dht, uint8_t *key_, size_t key_len,
              uint8_t *data, size_t data_len, done_callback done_cb, void *done_ptr)
 {
   dht::InfoHash key = dht::InfoHash::get(key_, key_len);
-   std::shared_ptr<dht::Value> value(new dht::Value(data, data_len));
+  std::shared_ptr<dht::Value> value(new dht::Value(data, data_len));
 
   auto cb = [done_cb, done_ptr](bool success) {
     done_cb(success, done_ptr);
