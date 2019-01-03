@@ -1,21 +1,26 @@
 [package]
 name = "opendht"
-version = "0.0.2"
+version = "0.1.0"
 authors = ["Manuel Schölling <manuel.schoelling@gmx.de>"]
 build = "build.rs"
 edition = "2018"
+description = "A Rust API for OpenDHT"
+license = "GPL-3.0"
+documentation = "https://docs.rs/opendht"
+repository = "https://github.com/manuels/opendht"
+readme = "README.md"
 
 [[example]]
 name = "dht"
 
 [build-dependencies]
-cc = "*"
+cc = "1.0.26"
 
 [dependencies]
-libc = "*"
-nix = "*"
-ring = "*"
-futures = "*"
+libc = "0.2.45"
+nix = "0.12.0"
+ring = "0.13.5"
+futures = "0.1.25"
 
 [dev-dependencies]
 tokio = {version = "0.1", features = ["async-await-preview"]}
