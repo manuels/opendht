@@ -97,11 +97,14 @@ impl OpenDht {
     /// # Arguments
     ///
     /// * `port` - UDP port to use for network communication
-    pub fn new(port: u16) -> OpenDht {
+    pub fn new(port: u16) -> std::io::Result<OpenDht> {
         let ptr = unsafe { sys::dht_init() };
-        unsafe { sys::dht_run(ptr, port) };
 
-        OpenDht(Arc::new(AtomicPtr::new(ptr)))
+        if unsafe { sys::dht_run(ptr, port) } != 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+
+        Ok(OpenDht(Arc::new(AtomicPtr::new(ptr))))
     }
 
     /// Connect this DHT client to other nodes.
@@ -214,12 +217,13 @@ impl OpenDht {
     /// # Arguments
     ///
     /// * `key` - Key to lookup.
-    pub fn listen(&self, key: &[u8]) -> mpsc::Receiver<Vec<u8>>
+    pub fn listen<K: Into<InfoHash>>(&self, key: K) -> mpsc::Receiver<Vec<u8>>
     {
         let (get_tx, get_rx) = mpsc::channel(10);
         let get_tx = Box::new(get_tx);
         let get_tx = Box::into_raw(get_tx);
 
+        let key = key.into();
         let key_ptr = key.as_ptr();
         let this = self.0.load(Ordering::Relaxed);
 

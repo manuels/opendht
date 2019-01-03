@@ -14,7 +14,7 @@ extern {
     pub fn dht_drop(dht: dht_t);
     pub fn dht_join(dht: dht_t);
     pub fn dht_is_running(dht: dht_t) -> libc::c_int;
-    pub fn dht_run(dht: dht_t, port: u16);
+    pub fn dht_run(dht: dht_t, port: u16) -> libc::c_int;
     pub fn dht_loop_ms(dht: dht_t) -> libc::time_t;
 
     pub fn dht_bootstrap(dht: dht_t, sa: *const libc::sockaddr,

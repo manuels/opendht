@@ -33,7 +33,7 @@ async fn run(dht: OpenDht) {
 
 fn main() {
     tokio::run_async(async {
-        let dht = OpenDht::new(4222);
+        let dht = OpenDht::new(4222).unwrap();
 
         let dht2 = dht.clone();
         tokio::spawn_async(async move {

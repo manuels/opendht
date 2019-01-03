@@ -17,11 +17,18 @@ std::time_t to_time_t(steady_clock::time_point t) {
 }
 
 extern "C" dht_t *dht_init() {
-  return (dht_t *) new dht::DhtRunner();
+  auto x = new dht::DhtRunner();
+  return (dht_t *) x;
 }
 
-extern "C" void dht_run(dht_t *dht, uint16_t port) {
-  DHT(dht)->run(port, {}, port);
+extern "C" int dht_run(dht_t *dht, uint16_t port) {
+  try {
+    DHT(dht)->run(port, {}, port);
+  }
+  catch (dht::DhtException &e) {
+    return 0xffff;
+  }
+  return 0;
 }
 
 extern "C" void dht_drop(dht_t *dht) {
