@@ -1,20 +1,20 @@
-#![feature(await_macro, async_await, futures_api)]
+#![feature(await_macro, async_await)]
 
+extern crate futures;
 extern crate libc;
 extern crate nix;
 extern crate ring;
-extern crate futures;
 
 mod sys;
 
 use std::net::SocketAddr;
-use std::time::Instant;
-use std::time::Duration;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicPtr, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
+use std::time::Instant;
 
-use futures::sync::mpsc;
-use futures::sync::oneshot;
+use futures::channel::mpsc;
+use futures::channel::oneshot;
 use nix::sys::socket::InetAddr;
 use nix::sys::socket::SockAddr;
 
@@ -23,7 +23,7 @@ use ring::digest;
 pub struct InfoHash(digest::Digest);
 
 impl InfoHash {
-    pub fn new<T:AsRef<[u8]>>(key: T) -> InfoHash {
+    pub fn new<T: AsRef<[u8]>>(key: T) -> InfoHash {
         let hash = digest::digest(&digest::SHA1, key.as_ref());
         InfoHash(hash)
     }
@@ -53,24 +53,23 @@ pub struct OpenDht(Arc<AtomicPtr<libc::c_void>>);
 unsafe impl Send for OpenDht {}
 unsafe impl Sync for OpenDht {}
 
-extern fn done_callback(success: sys::c_bool, tx: *mut oneshot::Sender<bool>)
-{
+extern "C" fn done_callback(success: sys::c_bool, tx: *mut oneshot::Sender<bool>) {
     let tx = unsafe { Box::from_raw(tx) };
     let _ = tx.send(success != 0);
 }
 
-extern fn get_callback(values: *mut *mut libc::c_uchar,
+extern "C" fn get_callback(
+    values: *mut *mut libc::c_uchar,
     lengths: *const libc::size_t,
     count: libc::size_t,
-    tx: *mut mpsc::Sender<Vec<u8>>)
-    -> sys::c_bool
-{
+    tx: *mut mpsc::Sender<Vec<u8>>,
+) -> sys::c_bool {
     let mut tx = unsafe { Box::from_raw(tx) };
     let ptr_list = unsafe { std::slice::from_raw_parts(values, count) };
     let len_list = unsafe { std::slice::from_raw_parts(lengths as *mut libc::size_t, count) };
 
     for (ptr, len) in ptr_list.iter().zip(len_list.iter()) {
-        let item = unsafe { std::slice::from_raw_parts(*ptr, *len)};
+        let item = unsafe { std::slice::from_raw_parts(*ptr, *len) };
 
         if tx.try_send(item.to_vec()).is_err() {
             std::mem::forget(tx);
@@ -86,9 +85,7 @@ extern fn get_callback(values: *mut *mut libc::c_uchar,
 fn convert_socketaddr(s: &SocketAddr) -> libc::sockaddr {
     let s = InetAddr::from_std(s);
     let s = SockAddr::new_inet(s);
-    unsafe {
-        *s.as_ffi_pair().0
-    }
+    unsafe { *s.as_ffi_pair().0 }
 }
 
 impl OpenDht {
@@ -114,9 +111,7 @@ impl OpenDht {
     /// Usually you should use `bootstrap.ring.cx` on port `4222` here.
     /// You MUST call bootstrap to make your DHT client to work (unless you are
     /// running a bootstrapping node - for experts only).
-    pub fn bootstrap(&self, sockets: &[SocketAddr])
-        -> oneshot::Receiver<bool>
-    {
+    pub fn bootstrap(&self, sockets: &[SocketAddr]) -> oneshot::Receiver<bool> {
         let (tx, rx) = oneshot::channel();
         let tx = Box::new(tx);
         let tx = Box::into_raw(tx);
@@ -157,9 +152,7 @@ impl OpenDht {
     ///
     /// * `key` - Key that is used to find the value by the other DHT clients.
     /// * `value` - Value to store on the DHT.
-    pub fn put<K: Into<InfoHash>>(&self, key: K, value: &[u8])
-        -> oneshot::Receiver<bool>
-    {
+    pub fn put<K: Into<InfoHash>>(&self, key: K, value: &[u8]) -> oneshot::Receiver<bool> {
         let (tx, rx) = oneshot::channel();
         let tx = Box::new(tx);
         let tx = Box::into_raw(tx);
@@ -171,8 +164,15 @@ impl OpenDht {
         let this = self.0.load(Ordering::Relaxed);
 
         unsafe {
-            sys::dht_put(this, key_ptr, key.len(), ptr, value.len(),
-                done_callback, tx);
+            sys::dht_put(
+                this,
+                key_ptr,
+                key.len(),
+                ptr,
+                value.len(),
+                done_callback,
+                tx,
+            );
         }
 
         rx
@@ -185,10 +185,8 @@ impl OpenDht {
     /// # Arguments
     ///
     /// * `key` - Key to lookup.
-    pub fn get<K: Into<InfoHash>>(&self, key: K) -> mpsc::Receiver<Vec<u8>>
-    {
-        extern fn get_done_callback(_success: sys::c_bool, tx: *mut mpsc::Sender<Vec<u8>>)
-        {
+    pub fn get<K: Into<InfoHash>>(&self, key: K) -> mpsc::Receiver<Vec<u8>> {
+        extern "C" fn get_done_callback(_success: sys::c_bool, tx: *mut mpsc::Sender<Vec<u8>>) {
             let tx = unsafe { Box::from_raw(tx) };
             drop(tx);
         }
@@ -202,8 +200,15 @@ impl OpenDht {
         let this = self.0.load(Ordering::Relaxed);
 
         unsafe {
-            sys::dht_get(this, key_ptr, key.len(), get_callback, get_tx,
-                get_done_callback, get_tx);
+            sys::dht_get(
+                this,
+                key_ptr,
+                key.len(),
+                get_callback,
+                get_tx,
+                get_done_callback,
+                get_tx,
+            );
         }
 
         get_rx
@@ -217,8 +222,7 @@ impl OpenDht {
     /// # Arguments
     ///
     /// * `key` - Key to lookup.
-    pub fn listen<K: Into<InfoHash>>(&self, key: K) -> mpsc::Receiver<Vec<u8>>
-    {
+    pub fn listen<K: Into<InfoHash>>(&self, key: K) -> mpsc::Receiver<Vec<u8>> {
         let (get_tx, get_rx) = mpsc::channel(10);
         let get_tx = Box::new(get_tx);
         let get_tx = Box::into_raw(get_tx);
@@ -251,7 +255,7 @@ impl OpenDht {
     /// You can store this to a file when your program ends and `deserialize()`
     /// when your program starts again.
     pub fn serialize(&self) -> Vec<u8> {
-        extern fn cb(src: *const libc::c_uchar, len: libc::size_t, dst: *mut Vec<u8>) {
+        extern "C" fn cb(src: *const libc::c_uchar, len: libc::size_t, dst: *mut Vec<u8>) {
             unsafe {
                 let src = std::slice::from_raw_parts(src, len);
                 (*dst).copy_from_slice(&src);
@@ -279,7 +283,7 @@ impl OpenDht {
         unsafe {
             sys::deserialize(this, ptr, buf.len());
         }
-    } 
+    }
 }
 
 impl Drop for OpenDht {

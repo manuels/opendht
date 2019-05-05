@@ -2,8 +2,8 @@
 
 use libc;
 
-use futures::sync::oneshot;
-use futures::sync::mpsc;
+use futures::channel::oneshot;
+use futures::channel::mpsc;
 
 pub type dht_t = *mut libc::c_void;
 pub type c_bool = libc::c_uchar;
