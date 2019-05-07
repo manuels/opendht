@@ -8,7 +8,6 @@ extern crate ring;
 mod sys;
 
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicPtr, Ordering};
 use std::time::Duration;
 use std::time::Instant;
 
@@ -46,7 +45,7 @@ impl<'a, T: Into<&'a [u8]>> From<T> for InfoHash {
     }
 }
 
-pub struct OpenDht(AtomicPtr<libc::c_void>);
+pub struct OpenDht(*mut libc::c_void);
 
 unsafe impl Send for OpenDht {}
 unsafe impl Sync for OpenDht {}
@@ -99,7 +98,7 @@ impl OpenDht {
             return Err(std::io::Error::last_os_error());
         }
 
-        Ok(OpenDht(AtomicPtr::new(ptr)))
+        Ok(OpenDht(ptr))
     }
 
     /// Connect this DHT client to other nodes.
@@ -118,30 +117,26 @@ impl OpenDht {
         socks = sockets.iter().map(convert_socketaddr).collect();
 
         let ptr = socks.as_ptr();
-        let this = self.0.load(Ordering::Relaxed);
 
         unsafe {
-            sys::dht_bootstrap(this, ptr, socks.len(), done_callback, tx);
+            sys::dht_bootstrap(self.0, ptr, socks.len(), done_callback, tx);
         }
 
         rx
     }
 
     fn loop_(&self) -> Duration {
-        let ptr = self.0.load(Ordering::Relaxed);
-        let next = unsafe { sys::dht_loop_ms(ptr) };
+        let next = unsafe { sys::dht_loop_ms(self.0) };
         Duration::from_millis(next as _)
     }
 
     fn is_running(&self) -> bool {
-        let ptr = self.0.load(Ordering::Relaxed);
-        unsafe { sys::dht_is_running(ptr) != 0 }
+        unsafe { sys::dht_is_running(self.0) != 0 }
     }
 
     /// Wait for DHT threads to end. Run this before your program ends.
     pub fn join(&self) {
-        let this = self.0.load(Ordering::Relaxed);
-        unsafe { sys::dht_join(this) };
+        unsafe { sys::dht_join(self.0) };
     }
 
     /// Put a value on the DHT.
@@ -159,11 +154,9 @@ impl OpenDht {
         let key_ptr = key.as_ptr();
         let ptr = value.as_ptr();
 
-        let this = self.0.load(Ordering::Relaxed);
-
         unsafe {
             sys::dht_put(
-                this,
+                self.0,
                 key_ptr,
                 key.len(),
                 ptr,
@@ -195,11 +188,10 @@ impl OpenDht {
 
         let key = key.into();
         let key_ptr = key.as_ptr();
-        let this = self.0.load(Ordering::Relaxed);
 
         unsafe {
             sys::dht_get(
-                this,
+                self.0,
                 key_ptr,
                 key.len(),
                 get_callback,
@@ -227,10 +219,9 @@ impl OpenDht {
 
         let key = key.into();
         let key_ptr = key.as_ptr();
-        let this = self.0.load(Ordering::Relaxed);
 
         unsafe {
-            sys::dht_listen(this, key_ptr, key.len(), get_callback, get_tx);
+            sys::dht_listen(self.0, key_ptr, key.len(), get_callback, get_tx);
         }
 
         get_rx
@@ -262,10 +253,9 @@ impl OpenDht {
 
         let buf = Box::new(Vec::new());
         let ptr = Box::into_raw(buf);
-        let this = self.0.load(Ordering::Relaxed);
 
         let vec = unsafe {
-            sys::serialize(this, cb, ptr);
+            sys::serialize(self.0, cb, ptr);
             Box::from_raw(ptr)
         };
 
@@ -276,10 +266,9 @@ impl OpenDht {
     /// (See `serialize()`)
     pub fn deserialize(&self, buf: &[u8]) {
         let ptr = buf.as_ptr();
-        let this = self.0.load(Ordering::Relaxed);
 
         unsafe {
-            sys::deserialize(this, ptr, buf.len());
+            sys::deserialize(self.0, ptr, buf.len());
         }
     }
 }
@@ -287,8 +276,7 @@ impl OpenDht {
 impl Drop for OpenDht {
     fn drop(&mut self) {
         unsafe {
-            let ptr = self.0.load(Ordering::Relaxed);
-            sys::dht_drop(ptr);
+            sys::dht_drop(self.0);
         }
     }
 }
