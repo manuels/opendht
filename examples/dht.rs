@@ -7,10 +7,11 @@ extern crate tokio;
 use futures::compat::*;
 use futures::prelude::*;
 use std::net::ToSocketAddrs;
+use std::sync::Arc;
 
 use opendht::OpenDht;
 
-async fn run(dht: OpenDht) {
+async fn run(dht: Arc<OpenDht>) {
     println!("Bootstrapping...");
     let addrs: Vec<_> = "bootstrap.ring.cx:4222"
         .to_socket_addrs()
@@ -37,8 +38,7 @@ async fn run(dht: OpenDht) {
 
 fn main() {
     let f = async {
-        let dht = OpenDht::new(4222).unwrap();
-
+        let dht = Arc::new(OpenDht::new(4222).unwrap());
         let dht2 = dht.clone();
 
         let f = async move {

@@ -9,7 +9,6 @@ mod sys;
 
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicPtr, Ordering};
-use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 
@@ -47,8 +46,7 @@ impl<'a, T: Into<&'a [u8]>> From<T> for InfoHash {
     }
 }
 
-#[derive(Clone)]
-pub struct OpenDht(Arc<AtomicPtr<libc::c_void>>);
+pub struct OpenDht(AtomicPtr<libc::c_void>);
 
 unsafe impl Send for OpenDht {}
 unsafe impl Sync for OpenDht {}
@@ -101,7 +99,7 @@ impl OpenDht {
             return Err(std::io::Error::last_os_error());
         }
 
-        Ok(OpenDht(Arc::new(AtomicPtr::new(ptr))))
+        Ok(OpenDht(AtomicPtr::new(ptr)))
     }
 
     /// Connect this DHT client to other nodes.
@@ -288,11 +286,9 @@ impl OpenDht {
 
 impl Drop for OpenDht {
     fn drop(&mut self) {
-        if let Some(this) = Arc::get_mut(&mut self.0) {
-            unsafe {
-                let ptr = this.load(Ordering::Relaxed);
-                sys::dht_drop(ptr);
-            }
+        unsafe {
+            let ptr = self.0.load(Ordering::Relaxed);
+            sys::dht_drop(ptr);
         }
     }
 }
