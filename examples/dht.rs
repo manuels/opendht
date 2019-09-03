@@ -1,5 +1,3 @@
-#![feature(await_macro, async_await)]
-
 extern crate futures;
 extern crate opendht;
 extern crate tokio;
@@ -18,17 +16,17 @@ async fn run(dht: Arc<OpenDht>) {
         .unwrap()
         .collect();
     let f = dht.bootstrap(&addrs);
-    await!(f).unwrap();
+    f.await.unwrap();
 
     let key = &b"foo"[..];
 
     println!("Storing...");
     let f = dht.put(key, &[9, 9, 9]);
-    await!(f).unwrap();
+    f.await.unwrap();
 
     let mut f = dht.get(key);
 
-    while let Some(item) = await!(f.next()) {
+    while let Some(item) = f.next().await {
         println!("Found {:?}", item);
     }
 
@@ -44,12 +42,12 @@ fn main() {
         let f = async move {
             while let Some(next) = dht2.tick() {
                 let f = tokio::timer::Delay::new(next);
-                let _ = await!(f.compat());
+                let _ = f.compat().await;
             }
         };
         tokio::spawn(f.boxed().unit_error().compat());
 
-        await!(run(dht));
+        run(dht).await;
     };
 
     tokio::run(f.boxed().unit_error().compat());
