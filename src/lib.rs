@@ -1,5 +1,3 @@
-#![feature(await_macro, async_await)]
-
 extern crate futures;
 extern crate libc;
 extern crate nix;
