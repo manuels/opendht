@@ -7,7 +7,6 @@ mod sys;
 
 use std::net::SocketAddr;
 use std::time::Duration;
-use std::time::Instant;
 
 use futures::channel::mpsc;
 use futures::channel::oneshot;
@@ -229,10 +228,10 @@ impl OpenDht {
     /// again, so you probably should `clone` this `OpenDht` instance
     /// and call it in a [tokio::spawn](tokio::executor::spawn)ed loop.
     /// Returns None if this loop can stop.
-    pub fn tick(&self) -> Option<Instant> {
+    pub fn tick(&self) -> Option<Duration> {
         if self.is_running() {
             let next = self.loop_();
-            Some(Instant::now() + next)
+            Some(next)
         } else {
             None
         }
