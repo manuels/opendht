@@ -15,6 +15,7 @@ use nix::sys::socket::SockAddr;
 
 use ring::digest;
 
+#[derive(Clone)]
 pub struct InfoHash(digest::Digest);
 
 impl InfoHash {
