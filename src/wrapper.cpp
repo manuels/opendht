@@ -61,11 +61,29 @@ extern "C" void dht_bootstrap(dht_t *dht, sockaddr sa[], size_t sa_count, done_c
     done_cb(success, done_ptr);
   };
 
-  std::vector<dht::SockAddr> vec;
+  #if OPENDHT_MAJOR_VERSION == 2
+      std::vector<dht::SockAddr> vec;
+  #else
+      std::vector<std::pair<sockaddr_storage, unsigned int>> vec;
+  #endif
   vec.reserve(sa_count);
 
   for (size_t i = 0; i < sa_count; i++) {
-    vec.push_back(dht::SockAddr(&sa[i]));
+      socklen_t len = 0;
+      if (sa->sa_family == AF_INET)
+          len = sizeof(sockaddr_in);
+      else if(sa->sa_family == AF_INET6)
+          len = sizeof(sockaddr_in6);
+      else
+          throw std::runtime_error("Unknown address family");
+
+      #if OPENDHT_MAJOR_VERSION == 2
+          vec.push_back(dht::SockAddr(&sa[i], len));
+      #else
+          struct sockaddr_storage ss;
+          memcpy(&ss, &sa[i], len);
+          vec.push_back(std::make_pair(ss, len));
+      #endif
   }
 
   DHT(dht)->bootstrap(vec, cb);
@@ -130,14 +148,18 @@ extern "C" void dht_listen(dht_t *dht, uint8_t *key_, size_t key_len, get_callba
   DHT(dht)->listen(key, get_cb2);
 }
 
+/*
 extern "C" void serialize(dht_t *dht, void (*cb)(const char *, size_t, void *), void *ptr) {
   msgpack::sbuffer sbuf;
   msgpack::pack(sbuf, DHT(dht)->exportNodes());
   cb(sbuf.data(), sbuf.size(), ptr);
 }
+*/
 
+/*
 extern "C" void deserialize(dht_t *dht, const char *buf, size_t len) {
   msgpack::object_handle oh = msgpack::unpack(buf, len);
   auto nodes = oh.get().as<std::vector<dht::NodeExport>>();
   DHT(dht)->bootstrap(nodes);
 }
+*/

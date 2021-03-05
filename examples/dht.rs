@@ -21,6 +21,7 @@ async fn run(dht: Arc<OpenDht>) {
     dht.put(key, &[9, 9, 9]).await.unwrap();
 
     let mut f = dht.get(key);
+//    let mut f = dht.listen(key);
 
     while let Some(item) = f.next().await {
         println!("Found {:?}", item);

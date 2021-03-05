@@ -247,7 +247,7 @@ impl OpenDht {
                 let src = std::slice::from_raw_parts(src, len);
                 (*dst).copy_from_slice(&src);
             }
-        };
+        }
 
         let buf = Box::new(Vec::new());
         let ptr = Box::into_raw(buf);
