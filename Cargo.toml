@@ -1,6 +1,6 @@
 [package]
 name = "opendht"
-version = "0.4.1"
+version = "0.5.0"
 authors = ["Manuel Schölling <manuel.schoelling@gmx.de>"]
 build = "build.rs"
 edition = "2018"
